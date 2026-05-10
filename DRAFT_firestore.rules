@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // AUTH HELPERS
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // SCHEMA HELPERS
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // VALIDATION BLUEPRINT
+    function isValidRecipient(data) {
+      return data.keys().hasAll(['name', 'nik', 'aidType', 'status', 'province', 'city', 'district', 'submissionDate', 'contact', 'isTermsAccepted', 'createdAt', 'updatedAt'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.nik is string && data.nik.size() == 16
+        && data.aidType in ['Beasiswa', 'Kesehatan', 'Sembako', 'Modal Usaha', 'Bencana Alam']
+        && data.status in ['Pending', 'Calon', 'Disetujui', 'Ditolak', 'Disalurkan']
+        && data.province is string && data.province.size() > 0
+        && data.city is string && data.city.size() > 0
+        && data.district is string && data.district.size() > 0
+        && data.submissionDate is string
+        && data.contact is string && data.contact.size() > 0
+        && data.amountPlanned is number && data.amountPlanned >= 0
+        && data.isTermsAccepted is bool
+        && data.createdAt is string
+        && data.updatedAt is string;
+    }
+
+    match /recipients/{recipientId} {
+      allow get: if isVerified();
+      allow list: if isVerified();
+      
+      allow create: if isVerified() 
+        && isValidId(recipientId)
+        && isValidRecipient(incoming())
+        && incoming().status == 'Pending'
+        && incoming().createdAt == request.time.format('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'Z\'');
+
+      allow update: if isVerified()
+        && isValidRecipient(incoming())
+        && (
+          // Action: Approve/Status Change
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+          // Action: Edit Notes/Details
+          (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'notes', 'updatedAt']))
+        )
+        && incoming().updatedAt == request.time.format('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'Z\'')
+        && incoming().createdAt == existing().createdAt;
+
+      allow delete: if false; // Admin only or disable for record integrity
+    }
+  }
+}

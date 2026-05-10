@@ -1,0 +1,152 @@
+{
+  "entities": {
+    "Recipient": {
+      "title": "Recipient",
+      "description": "Information about social aid recipients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nik": { "type": "string" },
+        "kk": { "type": "string" },
+        "pob": { "type": "string" },
+        "dob": { "type": "string" },
+        "gender": { "type": "string", "enum": ["Laki-laki", "Perempuan"] },
+        "familyStatus": { "type": "string" },
+        "headOfFamilyName": { "type": "string" },
+        "headOfFamilyDob": { "type": "string" },
+        "address": { "type": "string" },
+        "rt": { "type": "string" },
+        "rw": { "type": "string" },
+        "kampung": { "type": "string" },
+        "district": { "type": "string" },
+        "registrationId": { "type": "string" },
+        "source": { "type": "string" },
+        "sector": { "type": "string" },
+        "subSector": { "type": "string" },
+        "aidType": { "type": "string" },
+        "programName": { "type": "string" },
+        "purpose": { "type": "string" },
+        "amountProposed": { "type": "number" },
+        "contact": { "type": "string" },
+        "companion": { "type": "string" },
+        "submissionDate": { "type": "string" },
+        "surveyDate": { "type": "string" },
+        "disbursementDate": { "type": "string" },
+        "amountDisbursed": { "type": "number" },
+        "schoolName": { "type": "string" },
+        "schoolLevel": { "type": "string" },
+        "schoolClass": { "type": "string" },
+        "schoolAddress": { "type": "string" },
+        "schoolPhone": { "type": "string" },
+        "bankAccountNo": { "type": "string" },
+        "bankName": { "type": "string" },
+        "bankAccountHolder": { "type": "string" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" },
+        "isTermsAccepted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "nik", "registrationId", "status"]
+    },
+    "PPDRecord": {
+      "title": "PPD Record",
+      "description": "Records of PPD generation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "no": { "type": "string" },
+        "date": { "type": "string" },
+        "requestedBy": { "type": "string" },
+        "amount": { "type": "number" },
+        "proposeFor": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "signedPdfUrl": { "type": "string", "description": "Base64 encoded PDF (Max 1MB)" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["no", "recipientId"]
+    },
+    "companionReports": {
+      "title": "Companion Monthly Report",
+      "description": "Monthly reports uploaded by program companions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companionId": { "type": "string" },
+        "companionName": { "type": "string" },
+        "month": { "type": "string" },
+        "year": { "type": "number" },
+        "reportType": { "type": "string", "enum": ["Bulanan", "Program"] },
+        "sector": { "type": "string", "enum": ["Siak Cerdas", "Siak Dakwah", "Siak Peduli", "Siak Sehat", "Siak Sejahtera"] },
+        "title": { "type": "string" },
+        "coverUrl": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "uploadedAt": { "type": "string", "format": "date-time" },
+        "uploaderId": { "type": "string" }
+      },
+      "required": ["companionId", "month", "year", "title", "coverUrl"]
+    },
+    "MonthlyPayment": {
+      "title": "Monthly Payment Tracking",
+      "description": "Monthly payment tracking for various sector beneficiaries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sector": { "type": "string" },
+        "programName": { "type": "string" },
+        "registrationId": { "type": "string" },
+        "asnaf": { "type": "string" },
+        "name": { "type": "string" },
+        "nik": { "type": "string" },
+        "contact": { "type": "string" },
+        "level": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "disbursementDate": { "type": "string" },
+        "budget": { "type": "number" },
+        "fundingSource": { "type": "string" },
+        "bankAccountNo": { "type": "string" },
+        "bankAccountName": { "type": "string" },
+        "bankName": { "type": "string" },
+        "monthControl": { "type": "string" },
+        "january": { "type": "boolean" },
+        "februari": { "type": "boolean" },
+        "maret": { "type": "boolean" },
+        "april": { "type": "boolean" },
+        "mei": { "type": "boolean" },
+        "juni": { "type": "boolean" },
+        "juli": { "type": "boolean" },
+        "agustus": { "type": "boolean" },
+        "september": { "type": "boolean" },
+        "oktober": { "type": "boolean" },
+        "november": { "type": "boolean" },
+        "desember": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sector", "programName", "name", "registrationId"]
+    }
+  },
+  "firestore": {
+    "/monthly_payments/{paymentId}": {
+      "schema": "MonthlyPayment",
+      "description": "Collection of monthly payment tracking for all sectors"
+    },
+    "/companionReports/{reportId}": {
+      "schema": "companionReports",
+      "description": "Collection of monthly reports from companions"
+    },
+    "/recipients/{recipientId}": {
+      "schema": "Recipient",
+      "description": "Collection of aid recipients"
+    },
+    "/recipients/{recipientId}/templates/{templateId}": {
+      "schema": "object",
+      "description": "Template-specific data (survey, memo, eppd)"
+    },
+    "/ppd_records/{recordId}": {
+      "schema": "PPDRecord",
+      "description": "Collection of PPD generation records"
+    }
+  }
+}

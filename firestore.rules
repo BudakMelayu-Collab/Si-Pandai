@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // AUTH HELPERS
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'muhammad.nawa@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // SCHEMA HELPERS
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // VALIDATION HELPERS
+    function isValidRecipient(data) {
+      return data.keys().hasAll(['name', 'nik', 'status', 'createdAt', 'updatedAt'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.nik is string && data.nik.size() == 16
+        && data.status is string
+        && (data.createdAt is timestamp || data.createdAt is string) // Support both during migration if needed
+        && (data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // RECIPIENTS
+    match /recipients/{recipientId} {
+      allow get, list: if isVerified();
+      allow create: if isVerified() && isValidId(recipientId) && isValidRecipient(incoming());
+      allow update: if isVerified() && isValidRecipient(incoming())
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin();
+      
+      match /templates/{templateId} {
+        allow read: if isVerified();
+        allow write: if isVerified();
+      }
+      match /scans/{scanId} {
+        allow read: if isVerified();
+        allow write: if isVerified();
+      }
+    }
+
+    // PPD RECORDS
+    match /ppd_records/{recordId} {
+      allow get, list: if isVerified();
+      allow create: if isVerified() && isValidId(recordId);
+      allow update: if isVerified();
+      allow delete: if isAdmin();
+    }
+
+    // COMPANION REPORTS
+    match /companionReports/{reportId} {
+      allow get, list: if isVerified();
+      allow create: if isVerified() && isValidId(reportId) && incoming().uploaderId == request.auth.uid;
+      allow update: if isVerified() && existing().uploaderId == request.auth.uid;
+      allow delete: if isAdmin() || (isVerified() && existing().uploaderId == request.auth.uid);
+    }
+
+    // MONTHLY PAYMENTS
+    match /monthly_payments/{paymentId} {
+      allow get, list: if isVerified();
+      allow create, update: if isVerified();
+      allow delete: if isAdmin();
+    }
+
+    // ANNOUNCEMENTS
+    match /announcements/{announcementId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // SETTINGS
+    match /settings/{settingId} {
+      allow get: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
