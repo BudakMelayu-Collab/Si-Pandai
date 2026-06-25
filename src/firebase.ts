@@ -64,7 +64,6 @@ console.log('Using Firestore Database Instance:', dbId);
 // Initialize Firestore with experimentalForceLongPolling to bypass iframe WebSocket issues
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-  useFetchStreams: false, // Helps in some sandboxed environments with restrictive CSP
 }, dbId);
 
 export const auth = getAuth(app);
@@ -362,6 +361,20 @@ export const saveRecipientTemplateData = async (recipientId: string, templateTyp
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+};
+
+export const streamRecipientScan = (id: string, docType: 'receipt' | 'mpzis' | 'eppd' | 'survey', callback: (base64: string | null) => void) => {
+  const scanRef = doc(db, 'recipients', id, 'scans', docType);
+  return onSnapshot(scanRef, (docSnap) => {
+    if (docSnap.exists() && docSnap.data().base64) {
+      callback(docSnap.data().base64);
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    console.error("Error streaming scan:", error);
+    callback(null);
+  });
 };
 
 export const updateRecipientReceiptPdf = async (id: string, pdfBase64: string | null) => {

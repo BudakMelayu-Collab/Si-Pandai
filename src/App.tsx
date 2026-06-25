@@ -37,7 +37,19 @@ import {
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { cn } from './lib/utils';
 
+import MobileScanner from './components/MobileScanner';
+
 export default function App() {
+  // Check for scanner mode in URL
+  const queryParams = new URLSearchParams(window.location.search);
+  const isScannerMode = queryParams.get('scanner') === 'true';
+  const scannerRecipientId = queryParams.get('recipientId');
+  const scannerDocType = queryParams.get('docType') as 'receipt' | 'mpzis' | 'eppd' | 'survey' | null;
+
+  if (isScannerMode && scannerRecipientId && scannerDocType) {
+    return <MobileScanner recipientId={scannerRecipientId} docType={scannerDocType} />;
+  }
+
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');

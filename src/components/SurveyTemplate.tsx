@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import QRCodeModal from './QRCodeModal';
 import { Recipient } from '../types';
-import { Printer, X, ClipboardList, Scissors, Save, Calculator, Landmark, Wallet, Plus, Trash2, Users, FileText, CheckCircle2, ExternalLink, Download, Upload, ChevronRight, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Printer, X, ClipboardList, Scissors, Save, Calculator, Landmark, Wallet, Plus, Trash2, Users, FileText, CheckCircle2, ExternalLink, Download, Upload, ChevronRight, Image as ImageIcon, Loader2, Smartphone } from 'lucide-react';
 import { cn, compressImage, isBase64SizeValid } from '../lib/utils';
 import * as storage from '../lib/storage';
 
@@ -26,6 +27,7 @@ export default function SurveyTemplate({ recipient, onClose }: SurveyTemplatePro
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadedRecipientId, setLoadedRecipientId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [showQRModal, setShowQRModal] = useState(false);
 
   // Toolbar switcher state
   const [activeTab, setActiveTab] = useState<'survey' | 'scan'>('survey');
@@ -152,6 +154,36 @@ export default function SurveyTemplate({ recipient, onClose }: SurveyTemplatePro
     const timer = setTimeout(saveToCloud, 2000); // Debounce auto-save
     return () => clearTimeout(timer);
   }, [income, expenses, explanation, familyCount, surveyDate, skmpKe, photos, archivedFiles, recipient.nik, recipient.id, isLoaded, loadedRecipientId]);
+
+  // Stream scan from cloud
+  useEffect(() => {
+    if (!recipient.id) return;
+    let isMounted = true;
+    
+    const startStream = async () => {
+      try {
+        const { streamRecipientScan } = await import('../firebase');
+        return streamRecipientScan(recipient.id, 'survey', (base64) => {
+          if (!isMounted) return;
+          if (base64) {
+             setSignedSurveyPdfUrl(base64);
+          } else {
+             setSignedSurveyPdfUrl(null);
+          }
+        });
+      } catch (e) {
+        console.error("Error setting up survey stream", e);
+      }
+    };
+    
+    let unsubscribe: any = null;
+    startStream().then(unsub => { if(unsub) unsubscribe = unsub; });
+    
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [recipient.id]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -401,6 +433,16 @@ export default function SurveyTemplate({ recipient, onClose }: SurveyTemplatePro
 
   return (
     <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-50 flex flex-col print:p-0 print:bg-white print:block overflow-hidden">
+      {/* Scanner Mode View */}
+      {showQRModal && (
+        <QRCodeModal
+          url={`${window.location.origin}/?scanner=true&recipientId=${recipient.id}&docType=survey`}
+          onClose={() => setShowQRModal(false)}
+          title="Scan Lembar Verifikasi"
+          subtitle="Scan QR Code ini menggunakan HP Anda untuk memfoto Lembar Verifikasi"
+        />
+      )}
+      
       {/* Toolbar */}
       <div className="bg-[#0f172a] border-b border-white/10 p-3 flex items-center justify-between print:hidden shrink-0">
         <div className="flex items-center gap-4">
@@ -765,21 +807,30 @@ export default function SurveyTemplate({ recipient, onClose }: SurveyTemplatePro
                         </div>
                       </div>
                     ) : (
-                      <label className={cn(
-                        "w-full flex items-center gap-4 bg-white/5 border border-dashed border-white/10 rounded-xl p-4 cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group",
-                        (isUploading || isLoadingFile) && "opacity-50 cursor-not-allowed"
-                      )}>
-                        <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:scale-110 transition-transform">
-                          {isUploading || isLoadingFile ? <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent animate-spin rounded-full" /> : <Upload className="w-5 h-5" />}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-white text-[11px] font-bold uppercase">
-                            {isLoadingFile ? 'Memuat dari Cloud...' : 'Upload Hasil Scan Bertanda Tangan'}
-                          </span>
-                          <span className="text-white/30 text-[9px]">Maks 1MB • PDF, JPG, PNG</span>
-                        </div>
-                        <input type="file" accept="application/pdf,image/*" className="hidden" onChange={handleSurveyScanUpload} disabled={isUploading || isLoadingFile} />
-                      </label>
+                      <div className="flex flex-col gap-2">
+                        <label className={cn(
+                          "w-full flex items-center gap-4 bg-white/5 border border-dashed border-white/10 rounded-xl p-4 cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group",
+                          (isUploading || isLoadingFile) && "opacity-50 cursor-not-allowed"
+                        )}>
+                          <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:scale-110 transition-transform">
+                            {isUploading || isLoadingFile ? <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent animate-spin rounded-full" /> : <Upload className="w-5 h-5" />}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-white text-[11px] font-bold uppercase">
+                              {isLoadingFile ? 'Memuat dari Cloud...' : 'Upload Hasil Scan Bertanda Tangan'}
+                            </span>
+                            <span className="text-white/30 text-[9px]">Maks 1MB • PDF, JPG, PNG</span>
+                          </div>
+                          <input type="file" accept="application/pdf,image/*" className="hidden" onChange={handleSurveyScanUpload} disabled={isUploading || isLoadingFile} />
+                        </label>
+                        <button 
+                          onClick={() => setShowQRModal(true)}
+                          className="w-full flex items-center justify-center gap-2 text-white text-[10px] font-bold py-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all"
+                        >
+                          <Smartphone className="w-3.5 h-3.5" />
+                          Scan lewat kamera HP
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

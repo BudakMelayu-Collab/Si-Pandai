@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Recipient } from '../types';
+import QRCodeModal from './QRCodeModal';
 import { 
   Printer, X, FileCheck, Edit3, Upload, Image as ImageIcon, 
   Trash2, Eye, FileText, AlertCircle, ChevronRight, Loader2,
-  Download
+  Download, Smartphone
 } from 'lucide-react';
 import { cn, compressImage, isBase64SizeValid } from '../lib/utils';
 import * as storage from '../lib/storage';
@@ -121,32 +122,46 @@ export default function ReceiptTemplate({ recipient, onClose, onEdit }: ReceiptT
     return () => clearTimeout(timer);
   }, [receiptData, recipient.id, isLoaded, loadedRecipientId]);
 
-  // Fetch scan from subcollection
+  const [showQRModal, setShowQRModal] = useState(false);
+
+  // Stream scan from subcollection
   useEffect(() => {
-    const fetchScan = async () => {
-      if (recipient.hasSignedReceiptPdf && !signedReceiptPdfUrl) {
-        setIsLoadingFile(true);
-        try {
-          const { getRecipientFile } = await import('../firebase');
-          const base64 = await getRecipientFile(recipient.id, 'receipt');
+    // Only start attempting to load or stream if we have a recipient
+    if (!recipient.id) return;
+    
+    let isMounted = true;
+    
+    const startStream = async () => {
+      try {
+        const { streamRecipientScan } = await import('../firebase');
+        return streamRecipientScan(recipient.id, 'receipt', (base64) => {
+          if (!isMounted) return;
           if (base64) {
             setSignedReceiptPdfUrl(base64);
-            // Auto switch to scan mode if it exists and we're just opening
-            if (viewMode === 'template') setViewMode('scan');
+            // Auto switch to scan mode if a new scan comes in
+            setViewMode('scan');
+            setIsLoadingFile(false);
           } else {
-            // Clear stale flag
-            const { updateRecipientReceiptPdf } = await import('../firebase');
-            await updateRecipientReceiptPdf(recipient.id, null);
+            setSignedReceiptPdfUrl(null);
+            setIsLoadingFile(false);
           }
-        } catch (error) {
-          console.error("Failed to fetch scan", error);
-        } finally {
-          setIsLoadingFile(false);
-        }
+        });
+      } catch (e) {
+        console.error("Error setting up scan stream", e);
       }
     };
-    fetchScan();
-  }, [recipient.id, recipient.hasSignedReceiptPdf]);
+    
+    setIsLoadingFile(true);
+    let unsubscribe: any = null;
+    startStream().then(unsub => {
+      if (unsub) unsubscribe = unsub;
+    });
+    
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [recipient.id]);
 
   // Convert Base64 to Blob URL
   useEffect(() => {
@@ -437,6 +452,16 @@ export default function ReceiptTemplate({ recipient, onClose, onEdit }: ReceiptT
 
   return (
     <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-50 flex flex-col print:p-0 print:bg-white print:block overflow-hidden">
+      {/* Scanner Mode View */}
+      {showQRModal && (
+        <QRCodeModal
+          url={`${window.location.origin}/?scanner=true&recipientId=${recipient.id}&docType=receipt`}
+          onClose={() => setShowQRModal(false)}
+          title="Scan Tanda Terima"
+          subtitle="Scan QR Code ini menggunakan HP Anda untuk memfoto Tanda Terima"
+        />
+      )}
+
       {/* Toolbar */}
       <div className="bg-[#111827] border-b border-white/10 p-3 flex items-center justify-between print:hidden shrink-0">
         <div className="flex items-center gap-4">
@@ -568,14 +593,23 @@ export default function ReceiptTemplate({ recipient, onClose, onEdit }: ReceiptT
                     {isLoadingFile ? 'Mohon tunggu sebentar, file berukuran besar sedang diproses.' : 'Silakan upload scan Dokumen Tanda Terima yang sudah ditandatangani oleh pemohon dan staff.'}
                   </p>
                   {!isLoadingFile && (
-                    <label className={cn(
-                      "px-8 py-3 rounded-xl text-sm font-bold transition-all shadow-xl flex items-center gap-2 cursor-pointer",
-                      isUploading ? "bg-slate-700 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 text-white"
-                    )}>
-                      {isUploading ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" /> : <Upload className="w-4 h-4" />}
-                      Upload File PDF
-                      <input type="file" className="hidden" accept="application/pdf" onChange={handlePdfUpload} disabled={isUploading} />
-                    </label>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      <label className={cn(
+                        "px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-xl flex items-center gap-2 cursor-pointer",
+                        isUploading ? "bg-slate-700 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                      )}>
+                        {isUploading ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" /> : <Upload className="w-4 h-4" />}
+                        Upload File
+                        <input type="file" className="hidden" accept="application/pdf,image/*" onChange={handlePdfUpload} disabled={isUploading} />
+                      </label>
+                      <button 
+                        onClick={() => setShowQRModal(true)}
+                        className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                      >
+                        <Smartphone className="w-5 h-5" />
+                        Scan via HP
+                      </button>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -628,15 +662,23 @@ export default function ReceiptTemplate({ recipient, onClose, onEdit }: ReceiptT
                 </div>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <label className={cn(
-                  "flex-1 flex items-center justify-center gap-2 text-[10px] font-bold py-2 rounded-lg cursor-pointer transition-all",
+                  "flex-1 flex items-center justify-center gap-2 text-[10px] font-bold py-2.5 rounded-lg cursor-pointer transition-all",
                   isUploading ? "bg-slate-700 text-white/40 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 text-white"
                 )}>
                   {isUploading ? <div className="w-3 h-3 border-2 border-white/50 border-t-transparent animate-spin rounded-full" /> : <Upload className="w-3.5 h-3.5" />}
-                  Upload
-                  <input type="file" className="hidden" accept="application/pdf" onChange={handlePdfUpload} disabled={isUploading} />
+                  Upload Scan
+                  <input type="file" className="hidden" accept="application/pdf,image/*" onChange={handlePdfUpload} disabled={isUploading} />
                 </label>
+
+                <button 
+                  onClick={() => setShowQRModal(true)}
+                  className="flex-1 flex items-center justify-center gap-2 text-[10px] font-bold py-2.5 rounded-lg cursor-pointer transition-all bg-white/5 hover:bg-white/10 text-white"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  Scan dari HP
+                </button>
                 
                 {signedReceiptPdfUrl && (
                   <button 
@@ -644,9 +686,10 @@ export default function ReceiptTemplate({ recipient, onClose, onEdit }: ReceiptT
                     onClick={() => {
                       if(confirm('Hapus file scan dari Cloud?')) handleSavePdfToServer(null);
                     }}
-                    className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
+                    className="flex-1 flex items-center justify-center gap-2 text-[10px] font-bold py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Hapus
                   </button>
                 ) }
               </div>

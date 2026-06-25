@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import QRCodeModal from './QRCodeModal';
 import { Recipient } from '../types';
 import { 
   Printer, X, FileText, CheckSquare, Square, 
   Image as ImageIcon, Upload, Edit3, Plus, Trash2,
   FileCheck, ExternalLink, AlertCircle, ChevronRight, Download,
-  ClipboardList, Loader2
+  ClipboardList, Loader2, Smartphone
 } from 'lucide-react';
 import { cn, compressImage, isBase64SizeValid } from '../lib/utils';
 import { PPDRecord } from '../types';
@@ -133,6 +134,8 @@ export default function EPPDTemplate({ recipient, records, onSaveRecord, onDelet
     attachment: ''
   });
 
+  const [showQRModal, setShowQRModal] = useState(false);
+
   // Sync state when recipient changes
   useEffect(() => {
     const loadSaved = async () => {
@@ -230,6 +233,36 @@ export default function EPPDTemplate({ recipient, records, onSaveRecord, onDelet
     const timer = setTimeout(saveData, 1000);
     return () => clearTimeout(timer);
   }, [ppdData, recipient.id, isLoaded, loadedRecipientId]);
+
+  // Stream scan from cloud
+  useEffect(() => {
+    if (!recipient.id) return;
+    let isMounted = true;
+    
+    const startStream = async () => {
+      try {
+        const { streamRecipientScan } = await import('../firebase');
+        return streamRecipientScan(recipient.id, 'eppd', (base64) => {
+          if (!isMounted) return;
+          if (base64) {
+             setSignedPdfUrl(base64);
+          } else {
+             setSignedPdfUrl(null);
+          }
+        });
+      } catch (e) {
+        console.error("Error setting up EPPD stream", e);
+      }
+    };
+    
+    let unsubscribe: any = null;
+    startStream().then(unsub => { if(unsub) unsubscribe = unsub; });
+    
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [recipient.id]);
 
   const handleSavePdfToServer = async (base64: string | null) => {
     setIsUploading(true);
@@ -373,6 +406,16 @@ export default function EPPDTemplate({ recipient, records, onSaveRecord, onDelet
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex flex-col print:p-0 print:bg-white print:block overflow-hidden">
+      {/* Scanner Mode View */}
+      {showQRModal && (
+        <QRCodeModal
+          url={`${window.location.origin}/?scanner=true&recipientId=${recipient.id}&docType=eppd`}
+          onClose={() => setShowQRModal(false)}
+          title="Scan E-PPD"
+          subtitle="Scan QR Code ini menggunakan HP Anda untuk memfoto dokumen E-PPD"
+        />
+      )}
+
       {/* Toolbar */}
       <div className="bg-[#1a1c2c] border-b border-white/10 p-3 flex items-center justify-between print:hidden shrink-0">
         <div className="flex items-center gap-4">
@@ -781,26 +824,38 @@ export default function EPPDTemplate({ recipient, records, onSaveRecord, onDelet
 
             <div className="border-t border-white/10 pt-4 flex flex-col gap-3">
               <label className="text-[10px] text-white/40 font-bold uppercase tracking-wider">Hasil Scan PPD (PDF)</label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <label className={cn(
-                  "flex-1 flex items-center justify-center gap-2 text-white text-xs font-bold py-2 rounded cursor-pointer transition-colors shadow-lg shadow-indigo-500/20",
+                  "w-full flex items-center justify-center gap-2 text-white text-xs font-bold py-2 rounded cursor-pointer transition-colors shadow-lg shadow-indigo-500/20",
                   isUploading ? "bg-slate-600 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500"
                 )}>
                   {isUploading || isLoadingFile ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" /> : <Upload className="w-3.5 h-3.5" />}
                   {signedPdfUrl ? "Ganti Scan PDF" : "Upload Scan PDF"}
-                  <input type="file" className="hidden" accept="application/pdf" onChange={handlePdfUpload} disabled={isUploading || isLoadingFile} />
+                  <input type="file" className="hidden" accept="application/pdf,image/*" onChange={handlePdfUpload} disabled={isUploading || isLoadingFile} />
                 </label>
-                {signedPdfUrl && (
+                
+                <div className="flex gap-2">
                   <button 
-                    disabled={isUploading}
-                    onClick={() => {
-                      if(confirm('Hapus file scan dari Cloud?')) handleSavePdfToServer(null);
-                    }}
-                    className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white rounded transition-all disabled:opacity-50"
+                    onClick={() => setShowQRModal(true)}
+                    className="flex-1 flex items-center justify-center gap-2 text-[10px] font-bold py-2 rounded-lg cursor-pointer transition-all bg-white/5 hover:bg-white/10 text-white"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Smartphone className="w-3.5 h-3.5" />
+                    Scan dari HP
                   </button>
-                )}
+
+                  {signedPdfUrl && (
+                    <button 
+                      disabled={isUploading}
+                      onClick={() => {
+                        if(confirm('Hapus file scan dari Cloud?')) handleSavePdfToServer(null);
+                      }}
+                      className="p-2 px-3 flex items-center gap-1.5 bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white rounded transition-all disabled:opacity-50 text-[10px] font-bold"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Hapus
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

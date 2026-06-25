@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Recipient } from '../types';
+import QRCodeModal from './QRCodeModal';
 import { 
   Printer, X, FileText, CheckSquare, Square, 
   Image as ImageIcon, Upload, Edit3, Plus, Trash2,
-  FileCheck, ExternalLink, Download, Loader2, ChevronRight
+  FileCheck, ExternalLink, Download, Loader2, ChevronRight, Smartphone
 } from 'lucide-react';
 import { cn, compressImage, isBase64SizeValid } from '../lib/utils';
 import * as storage from '../lib/storage';
@@ -23,6 +24,8 @@ export default function MPZISTemplate({ recipient, onClose }: MPZISTemplateProps
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadedRecipientId, setLoadedRecipientId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  
+  const [showQRModal, setShowQRModal] = useState(false);
   
   // Load saved data from storage on mount
   React.useEffect(() => {
@@ -59,29 +62,47 @@ export default function MPZISTemplate({ recipient, onClose }: MPZISTemplateProps
           console.error('Failed to load MPZIS survey data', e);
         }
       }
-
-      // If no local files but firestore says we have one, fetch it
-      if (currentFiles.length === 0 && recipient.hasSignedMPZISPdf) {
-        setIsLoadingFile(true);
-        try {
-          const { getRecipientFile } = await import('../firebase');
-          const base64 = await getRecipientFile(recipient.id, 'mpzis');
-          if (base64) {
-            setMpzisFiles([{ name: 'Scan_MPZIS_Cloud.pdf', data: base64 }]);
-          } else {
-            // Stale flag detected (flag is true but file is missing), clear it
-            const { updateRecipientMPZISPdf } = await import('../firebase');
-            await updateRecipientMPZISPdf(recipient.id, null);
-          }
-        } catch (error) {
-          console.error('Failed to fetch MPZIS scan from cloud', error);
-        } finally {
-          setIsLoadingFile(false);
-        }
-      }
     };
     loadData();
-  }, [recipient.id, recipient.nik, recipient.hasSignedMPZISPdf]);
+  }, [recipient.id, recipient.nik]);
+
+  // Stream MPZIS cloud files
+  React.useEffect(() => {
+    if (!recipient.id) return;
+    let isMounted = true;
+    
+    const startStream = async () => {
+      try {
+        const { streamRecipientScan } = await import('../firebase');
+        return streamRecipientScan(recipient.id, 'mpzis', (base64) => {
+          if (!isMounted) return;
+          if (base64) {
+            setMpzisFiles(prev => {
+              const hasCloudFile = prev.some(f => f.name.includes('Scan_MPZIS_Cloud'));
+              if (hasCloudFile) {
+                return prev.map(f => f.name.includes('Scan_MPZIS_Cloud') ? { ...f, data: base64 } : f);
+              } else {
+                return [{ name: 'Scan_MPZIS_Cloud.pdf', data: base64 }, ...prev];
+              }
+            });
+            setActiveTab('scan');
+          }
+          setIsLoadingFile(false);
+        });
+      } catch (e) {
+        console.error("Error setting up MPZIS stream", e);
+      }
+    };
+    
+    setIsLoadingFile(true);
+    let unsubscribe: any = null;
+    startStream().then(unsub => { if (unsub) unsubscribe = unsub; });
+    
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [recipient.id]);
 
   const handleSaveArchives = async (updatedFiles: { name: string; data: string }[]) => {
     // Current behavior: saves array of files to storage
@@ -353,6 +374,16 @@ export default function MPZISTemplate({ recipient, onClose }: MPZISTemplateProps
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex flex-col print:p-0 print:bg-white print:block overflow-hidden">
+      {/* Scanner Mode View */}
+      {showQRModal && (
+        <QRCodeModal
+          url={`${window.location.origin}/?scanner=true&recipientId=${recipient.id}&docType=mpzis`}
+          onClose={() => setShowQRModal(false)}
+          title="Scan MPZIS"
+          subtitle="Scan QR Code ini menggunakan HP Anda untuk memfoto dokumen MPZIS"
+        />
+      )}
+
       {/* Toolbar */}
       <div className="bg-[#0f2a24] border-b border-white/10 p-3 flex items-center justify-between print:hidden shrink-0">
         <div className="flex items-center gap-4">
@@ -441,14 +472,23 @@ export default function MPZISTemplate({ recipient, onClose }: MPZISTemplateProps
           )}
 
           {activeTab === 'scan' && (
-            <label className={cn(
-              "px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-500 transition-all shadow-lg shadow-purple-500/20 active:scale-95 cursor-pointer shrink-0",
-              (isSaving || isLoadingFile) && "opacity-50 animate-pulse pointer-events-none"
-            )}>
-              <Upload className="w-4 h-4" />
-              {isSaving || isLoadingFile ? "Memproses..." : "Upload Scan Baru"}
-              <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleMpzisUpload} />
-            </label>
+            <div className="flex items-center gap-2 shrink-0">
+              <label className={cn(
+                "px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-purple-500 transition-all shadow-lg shadow-purple-500/20 active:scale-95 cursor-pointer shrink-0",
+                (isSaving || isLoadingFile) && "opacity-50 animate-pulse pointer-events-none"
+              )}>
+                <Upload className="w-4 h-4" />
+                {isSaving || isLoadingFile ? "Memproses..." : "Upload Scan Baru"}
+                <input type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleMpzisUpload} />
+              </label>
+              <button 
+                onClick={() => setShowQRModal(true)}
+                className="px-4 py-2 bg-white/10 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-white/20 transition-all cursor-pointer shrink-0"
+              >
+                <Smartphone className="w-4 h-4" />
+                Scan via HP
+              </button>
+            </div>
           )}
         </div>
 
